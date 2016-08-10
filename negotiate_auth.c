@@ -92,7 +92,7 @@ static void php_krb5_negotiate_auth_object_dtor(void *obj, zend_object_handle ha
 		free(object->servname);
 	}
 	efree(object);
-} 
+}
 #else
 static void php_krb5_negotiate_auth_object_free(zend_object *obj TSRMLS_DC)
 {
@@ -102,7 +102,7 @@ static void php_krb5_negotiate_auth_object_free(zend_object *obj TSRMLS_DC)
 		free(object->servname);
 	}
 	zend_object_std_dtor(obj);
-} 
+}
 #endif
 /* }}} */
 
@@ -137,7 +137,7 @@ zend_object_value php_krb5_negotiate_auth_object_new(zend_class_entry *ce TSRMLS
 
 	retval.handlers = &krb5_negotiate_auth_handlers;
 	return retval;
-} 
+}
 #else
 zend_object *php_krb5_negotiate_auth_object_new(zend_class_entry *ce TSRMLS_DC)
 {
@@ -168,7 +168,7 @@ int php_krb5_negotiate_auth_register_classes(TSRMLS_D) {
 #endif
 
 	return SUCCESS;
-} 
+}
 /* }}} */
 
 
@@ -231,7 +231,7 @@ PHP_METHOD(KRB5NegotiateAuth, __construct)
 	}
 } /* }}} */
 
-/* {{{ proto bool KRB5NegotiateAuth::doAuthentication(  )
+/* {{{ proto bool KRB5NegotiateAuth::doAuthentication( string $authorization )
    Performs Negotiate/GSSAPI authentication  */
 PHP_METHOD(KRB5NegotiateAuth, doAuthentication)
 {
@@ -246,60 +246,35 @@ PHP_METHOD(KRB5NegotiateAuth, doAuthentication)
 	gss_buffer_desc output_token;
 	gss_cred_id_t server_creds = GSS_C_NO_CREDENTIAL;
 
-	if (zend_parse_parameters_none() == FAILURE) {
-		RETURN_FALSE;
-	}
+    char *str;
+    size_t str_len;
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &str, &str_len) == FAILURE) {
+        RETURN_FALSE;
+    }
+    if(strncasecmp(str, "negotiate", 9) != 0) {
+        // user did not provide negotiate authentication data
+        RETURN_FALSE;
+    }
+    if (str_len < 11) {
+        // user gave negotiate header but no data
+        RETURN_FALSE;
+    }
+    #if PHP_MAJOR_VERSION < 7
+        int ret_len = 0;
+        char *result = (char *)php_base64_decode_ex((unsigned char *)(str + 10), str_len - 10, &ret_len, 1);
+        token = zend_string_init(result, ret_len, 0);
+        efree(result);
+    #else
+        token = php_base64_decode_ex(str + 10, str_len - 10, 1);
+    #endif
+
+    if(!token) {
+        RETURN_FALSE;
+    }
 
 	object = KRB5_THIS_NEGOTIATE_AUTH;
-
 	if(!object) {
 		RETURN_FALSE;
-	}
-
-
-	/* get authentication data */
-	zval *auth_header = NULL;
-
-#if PHP_MAJOR_VERSION < 7
-	HashTable* server_vars = PG(http_globals)[TRACK_VARS_SERVER] != NULL ? PG(http_globals)[TRACK_VARS_SERVER]->value.ht : NULL;
-#else
-	HashTable* server_vars = Z_ARRVAL(PG(http_globals)[TRACK_VARS_SERVER]);
-#endif
- 
-	if(server_vars && (auth_header = zend_compat_hash_find(server_vars, "HTTP_AUTHORIZATION", sizeof("HTTP_AUTHORIZATION"))) != NULL) {
- 
-		if(!strncasecmp(Z_STRVAL_P(auth_header), "negotiate", 9) == 0) {
- 			// user agent did not provide negotiate authentication data
- 			RETURN_FALSE;
- 		}
- 
-		if(Z_STRLEN_P(auth_header) < 11) {
- 			// user agent gave negotiate header but no data
- 			zend_throw_exception(NULL, "Invalid negotiate authentication data given", 0 TSRMLS_CC);
- 			return;
- 		}
-#if PHP_MAJOR_VERSION < 7
-		int len = 0;
-		char *str = (char*) php_base64_decode_ex((unsigned char*) Z_STRVAL_P(auth_header)+10, Z_STRLEN_P(auth_header) - 10, &len, 1);
-		token = zend_string_init(str, len, 0);
-		efree(str);
-#else
-		token = php_base64_decode_ex((unsigned char*) Z_STRVAL_P(auth_header)+10, Z_STRLEN_P(auth_header) - 10, 1);
-#endif
-	} else {
-		// No authentication data given by the user agent
-		sapi_header_line ctr = {0};
-
-		ctr.line = "WWW-Authenticate: Negotiate";
-		ctr.line_len = strlen("WWW-Authenticate: Negotiate");
-		ctr.response_code = 401;
-		sapi_header_op(SAPI_HEADER_ADD, &ctr TSRMLS_CC);
-		RETURN_FALSE;
-	}
-
-	if(!token) {
-        	zend_throw_exception(NULL, "Failed to decode token data", 0 TSRMLS_CC);
-		return;
 	}
 
 	status = gss_acquire_cred(&minor_status,
@@ -354,23 +329,23 @@ PHP_METHOD(KRB5NegotiateAuth, doAuthentication)
 	if(output_token.length > 0) {
 
 #if PHP_MAJOR_VERSION < 7
-		int len = 0;
-		char *str = (char*) php_base64_encode(output_token.value, output_token.length, &len);
-		zend_string *encoded = zend_string_init(str, len, 0);
-		efree(str);
+		ret_len = 0;
+		result = (char *)php_base64_encode((unsigned char *)output_token.value, output_token.length, &ret_len);
+		zend_string *encoded = zend_string_init(result, ret_len, 0);
+		efree(result);
 #else
 		zend_string *encoded = php_base64_encode(output_token.value, output_token.length);
 #endif
 
 		sapi_header_line ctr = {0};
-
-		ctr.line = emalloc(sizeof("WWW-Authenticate: ")+encoded->len);
+		ctr.line_len = strlen("WWW-Authenticate: ") + encoded->len;
+		ctr.line = emalloc(ctr.line_len + 1);
 		strcpy(ctr.line, "WWW-Authenticate: ");
 		strcpy(ctr.line + strlen("WWW-Authenticate: "), encoded->val);
 		ctr.response_code = 200;
 		sapi_header_op(SAPI_HEADER_ADD, &ctr TSRMLS_CC);
-		zend_string_release(encoded);
 
+		zend_string_release(encoded);
 		efree(ctr.line);
 		gss_release_buffer(&minor_status, &output_token);
 	}
@@ -453,7 +428,7 @@ PHP_METHOD(KRB5NegotiateAuth, getDelegatedCredentials)
 		return;
 	}
 
-	/* copy credentials to ccache */ 
+	/* copy credentials to ccache */
 	status = gss_krb5_copy_ccache(&minor_status, object->delegated, ticket->cc);
 
 	if(GSS_ERROR(status)) {
@@ -463,4 +438,3 @@ PHP_METHOD(KRB5NegotiateAuth, getDelegatedCredentials)
 	}
 
 } /* }}} */
-
