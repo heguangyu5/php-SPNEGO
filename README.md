@@ -107,7 +107,7 @@ http://www.h5l.org/manual/HEAD/info/heimdal/Windows-compatibility.html
 
     # 192.168.3.106 kdc server
     sudo kadmin -l
-    kadmin> add --password=123456 host/hgy-PC@OURATS.COM
+    kadmin> add --password=123456 host/hgy-pc.ourats.com@OURATS.COM
 
     # windows
     // 以管理身份运行 cmd
