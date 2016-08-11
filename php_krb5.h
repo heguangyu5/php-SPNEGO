@@ -58,34 +58,12 @@ extern zend_module_entry krb5_module_entry;
 
 
 PHP_MINIT_FUNCTION(krb5);
-PHP_MSHUTDOWN_FUNCTION(krb5);
 PHP_MINFO_FUNCTION(krb5);
-
-zend_class_entry *krb5_ce_ccache;
-
-typedef struct _krb5_ccache_object {
-#if PHP_MAJOR_VERSION < 7
-	zend_object std;
-#endif
-	krb5_context ctx;
-	krb5_ccache cc;
-	char *keytab;
-#if PHP_MAJOR_VERSION >= 7
-	zend_object std;
-#endif
-} krb5_ccache_object;
 
 krb5_error_code php_krb5_display_error(krb5_context ctx, krb5_error_code code, char* str TSRMLS_DC);
 
 
 /* KRB5NegotiateAuth Object */
 int php_krb5_negotiate_auth_register_classes(TSRMLS_D);
-
-/* KADM5 glue */
-#ifdef HAVE_KADM5
-int php_krb5_kadm5_register_classes(TSRMLS_D);
-#endif
-
-
 
 #endif /* PHP_KRB5_H */
